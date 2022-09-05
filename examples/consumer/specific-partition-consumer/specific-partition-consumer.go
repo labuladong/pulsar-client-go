@@ -18,6 +18,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -32,31 +33,31 @@ func main() {
 
 	defer client.Close()
 
-	channel := make(chan pulsar.ConsumerMessage, 100)
-
-	options := pulsar.ConsumerOptions{
-		Topic:            "topic-1",
-		SubscriptionName: "my-subscription",
+	// subscribe a specific partition of a topic
+	consumer, err := client.Subscribe(pulsar.ConsumerOptions{
+		// pulsar partition is a special topic has the suffix '-partition-xx'
+		Topic:            "my-partitioned-topic-partition-2",
+		SubscriptionName: "my-sub",
 		Type:             pulsar.Shared,
-	}
-
-	options.MessageChannel = channel
-
-	consumer, err := client.Subscribe(options)
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	defer consumer.Close()
 
-	// Receive messages from channel. The channel returns a struct which contains message and the consumer from where
-	// the message was received. It's not necessary here since we have 1 single consumer, but the channel could be
-	// shared across multiple consumers as well
-	for cm := range channel {
-		msg := cm.Message
-		fmt.Printf("Received message  msgId: %v -- content: '%s'\n",
+	for i := 0; i < 10; i++ {
+		msg, err := consumer.Receive(context.Background())
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Printf("Received message msgId: %#v -- content: '%s'\n",
 			msg.ID(), string(msg.Payload()))
 
 		consumer.Ack(msg)
+	}
+
+	if err := consumer.Unsubscribe(); err != nil {
+		log.Fatal(err)
 	}
 }

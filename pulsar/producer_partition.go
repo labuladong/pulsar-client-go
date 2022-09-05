@@ -821,6 +821,7 @@ func (p *partitionProducer) Send(ctx context.Context, msg *ProducerMessage) (Mes
 	isDone := uAtomic.NewBool(false)
 	doneCh := make(chan struct{})
 
+	// 依然异步发送，等回调函数结束本函数的阻塞
 	p.internalSendAsync(ctx, msg, func(ID MessageID, message *ProducerMessage, e error) {
 		if isDone.CAS(false, true) {
 			err = e
@@ -857,7 +858,9 @@ func (p *partitionProducer) internalSendAsync(ctx context.Context, msg *Producer
 	p.options.Interceptors.BeforeSend(p, msg)
 
 	if p.options.DisableBlockIfQueueFull {
+		// 队列满了，但不要阻塞
 		if !p.publishSemaphore.TryAcquire() {
+			// 没拿到信号量，直接返回错误
 			if callback != nil {
 				callback(nil, msg, errSendQueueIsFull)
 			}
@@ -873,6 +876,7 @@ func (p *partitionProducer) internalSendAsync(ctx context.Context, msg *Producer
 	p.metrics.MessagesPending.Inc()
 	p.metrics.BytesPending.Add(float64(len(sr.msg.Payload)))
 
+	// 把消息投递发送到 channel 里面，有 maxPendingMessages 的缓存大小
 	p.eventsChan <- sr
 }
 

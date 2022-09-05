@@ -18,7 +18,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 
@@ -26,34 +25,40 @@ import (
 )
 
 func main() {
-	client, err := pulsar.NewClient(pulsar.ClientOptions{
-		URL: "pulsar://localhost:6650",
-	})
-
+	client, err := pulsar.NewClient(pulsar.ClientOptions{URL: "pulsar://localhost:6650"})
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	defer client.Close()
 
-	producer, err := client.CreateProducer(pulsar.ProducerOptions{
-		Topic: "topic-1",
-	})
+	// we can listen this channel
+	channel := make(chan pulsar.ConsumerMessage, 100)
+
+	options := pulsar.ConsumerOptions{
+		Topic:            "topic-1",
+		SubscriptionName: "my-subscription",
+		Type:             pulsar.Shared,
+		// fill `MessageChannel` field will create a listener
+		MessageChannel: channel,
+	}
+
+	consumer, err := client.Subscribe(options)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	defer producer.Close()
+	defer consumer.Close()
 
-	ctx := context.Background()
+	// Receive messages from channel. The channel returns a struct `ConsumerMessage` which contains message and the consumer from where
+	// the message was received. It's not necessary here since we have 1 single consumer, but the channel could be
+	// shared across multiple consumers as well
+	for cm := range channel {
+		consumer := cm.Consumer
+		msg := cm.Message
+		fmt.Printf("Consumer %s received a message, msgId: %v, content: '%s'\n",
+			consumer.Name(), msg.ID(), string(msg.Payload()))
 
-	for i := 0; i < 10; i++ {
-		if msgId, err := producer.Send(ctx, &pulsar.ProducerMessage{
-			Payload: []byte(fmt.Sprintf("hello-%d", i)),
-		}); err != nil {
-			log.Fatal(err)
-		} else {
-			log.Println("Published message: ", msgId)
-		}
+		consumer.Ack(msg)
 	}
 }
